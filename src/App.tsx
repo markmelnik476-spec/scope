@@ -35,9 +35,10 @@ import {
   Circle
 } from 'lucide-react';
 import { useTerms } from './hooks/useTerms';
-import { ClusterData, Subtopic, DetailTopic, archiveData } from './data/archiveData';
+import { ClusterData, Subtopic, DetailTopic } from './data/archiveData';
 import { clusterDescriptions } from './data/clusterDescriptions';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
+import { DebugPanel, debugLog } from './DebugPanel';
 
 import { getClusterTitleStyle, getSubtopicStyle } from './utils/hierarchy';
 
@@ -334,32 +335,63 @@ export default function App() {
   // HUD Panels Drag state
   const dragContainerRef = useRef<HTMLDivElement>(null);
   const [isPanelsUnlocked, setIsPanelsUnlocked] = useState<boolean>(false);
-  const [panelLocks, setPanelLocks] = useState<Record<string, boolean>>({});
+  const [panelDraggingId, setPanelDraggingId] = useState<string | null>(null);
+  const [panelLocks, setPanelLocks] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('archive-panel-locks-v1');
+    if (saved) {
+      try { return JSON.parse(saved); } catch { /* use defaults */ }
+    }
+    return {
+      tophud: true,
+      decryptor: true,
+      parametris_efir: true,
+      map: true,
+      size: true,
+      spheresize: true,
+      perf: true,
+      navigator: true,
+      catalog: true,
+    };
+  });
   const [isCatalogMovable, setIsCatalogMovable] = useState<boolean>(false);
   
   const togglePanelLock = (panelId: string) => {
-    setPanelLocks(prev => ({ ...prev, [panelId]: !prev[panelId] }));
+    setPanelLocks(prev => {
+      const next = { ...prev, [panelId]: prev[panelId] === undefined ? false : !prev[panelId] };
+      localStorage.setItem('archive-panel-locks-v1', JSON.stringify(next));
+      return next;
+    });
   };
 
+  const isPanelLocked = (panelId: string) => panelLocks[panelId] === undefined ? true : panelLocks[panelId];
+
   const getDragProps = (panelId: string) => {
-    const isDraggable = isPanelsUnlocked && !panelLocks[panelId];
+    const isDraggable = !isPanelLocked(panelId);
     return {
       drag: isDraggable,
       dragMomentum: false,
-      style: isDraggable ? { cursor: 'move' } : {}
+      dragElastic: 0,
+      dragTransition: { bounceStiffness: 0, bounceDamping: 0, power: 0, timeConstant: 0 },
+      _dragConstraints: { top: 0, left: 0, right: 0, bottom: 0 },
+      style: isDraggable ? { cursor: 'move' } : {},
+      transition: isDraggable ? { type: 'tween', duration: 0 } : undefined,
+      whileDrag: isDraggable ? { transition: { duration: 0 } } : undefined,
+      onDragStart: () => setPanelDraggingId(panelId),
+      onDragEnd: () => setPanelDraggingId(null),
     };
   };
 
+  const isPanelBeingDragged = (panelId: string) => panelDraggingId === panelId;
+
   const renderPanelLock = (panelId: string) => {
-    if (!isPanelsUnlocked) return null;
-    const isLocked = panelLocks[panelId];
+    const isLocked = isPanelLocked(panelId);
     return (
-      <button 
+      <button
         onClick={(e) => { e.stopPropagation(); togglePanelLock(panelId); }}
-        className={`absolute -top-2 -right-2 p-1 rounded-full shadow-lg border z-50 ${isLocked ? 'bg-indigo-900 border-indigo-500 text-indigo-300' : 'bg-amber-600 border-amber-400 text-amber-100'}`}
-        title={isLocked ? "Ра����блокировать панель" : "Заблокиров�����������������ть панель"}
+        className={`w-fit p-0.5 rounded transition-colors flex-shrink-0 ${panelId === 'catalog' ? 'absolute bottom-[4px] left-[-32px] z-40' : 'self-start'} ${isLocked ? 'text-amber-400 hover:text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)]' : 'text-amber-400 hover:text-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]'}`}
+        title={isLocked ? "Разблокировать панель" : "Заблокировать панель"}
       >
-        {isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+        {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4 text-amber-300" />}
       </button>
     );
   };
@@ -759,8 +791,8 @@ export default function App() {
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [lastMousePos, setLastMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [focusedPoint, setFocusedPoint] = useState<{ x: number; y: number } | null>(null);
-  const [isUiHidden, setIsUiHidden] = useState<boolean>(true);
-  const [isCatalogOpen, setIsCatalogOpen] = useState<boolean>(false);
+  const [isUiHidden, setIsUiHidden] = useState<boolean>(false);
+   const [isCatalogOpen, setIsCatalogOpen] = useState<boolean>(false);
 
   // HUD Element state visibility controls
   const [isSearchHidden, setIsSearchHidden] = useState<boolean>(() => {
@@ -769,9 +801,7 @@ export default function App() {
   const [isDecryptorHidden, setIsDecryptorHidden] = useState<boolean>(() => {
     return localStorage.getItem('archive-decryptor-hidden-v5') === 'true';
   });
-  const [isLegendHidden, setIsLegendHidden] = useState<boolean>(() => {
-    return localStorage.getItem('archive-legend-hidden-v5') === 'true';
-  });
+  const [isLegendHidden, setIsLegendHidden] = useState<boolean>(false);
   const [isCatalogHidden, setIsCatalogHidden] = useState<boolean>(() => {
     return localStorage.getItem('archive-catalog-hidden-v5') === 'true';
   });
@@ -781,6 +811,15 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('archive-search-hidden-v5', isSearchHidden.toString());
   }, [isSearchHidden]);
+  useEffect(() => {
+    setIsLegendHidden(false);
+    localStorage.setItem('archive-legend-hidden-v5', 'false');
+  }, []);
+  useEffect(() => {
+    setIsCatalogHidden(false);
+    setIsCatalogOpen(true);
+    localStorage.setItem('archive-catalog-hidden-v5', 'false');
+  }, []);
   useEffect(() => {
     localStorage.setItem('archive-decryptor-hidden-v5', isDecryptorHidden.toString());
   }, [isDecryptorHidden]);
@@ -1131,7 +1170,6 @@ export default function App() {
   }, [view]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // Avoid triggering drag when interacting with children nodes directly
     const target = e.target as HTMLElement;
     if (
       target.closest('.subtopic-node') || 
@@ -1139,14 +1177,19 @@ export default function App() {
       target.closest('.hud-panel') ||
       target.closest('button') || 
       target.closest('input') ||
-      (isMoveMode && target.closest('.cluster')) ||
-      (isMoveMode && target.closest('.resize-handle'))
+      target.closest('.cluster') ||
+      target.closest('.resize-handle')
     ) {
       return;
     }
+    // If clicking on empty canvas, clear active cluster
+    if (activeCluster) {
+      setActiveCluster(null);
+      setIsViewingClusterInfo(false);
+    }
     setIsDragging(true);
     setLastMousePos({ x: e.clientX, y: e.clientY });
-  }, [isMoveMode]);
+  }, [isMoveMode, activeCluster]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (draggedClusterId) {
@@ -1336,9 +1379,11 @@ export default function App() {
   // Handle cluster click: activate, highlight
   const handleClusterClick = (cluster: ClusterData) => {
     if (activeCluster?.id === cluster.id) {
+      debugLog({ type: 'event', message: `Sphere deactivated: "${cluster.title}"` });
       setActiveCluster(null);
       setIsViewingClusterInfo(false);
     } else {
+      debugLog({ type: 'event', message: `Sphere activated: "${cluster.title}"`, detail: `id=${cluster.id}` });
       setActiveCluster(cluster);
       setIsCatalogOpen(true);
     }
@@ -1579,7 +1624,7 @@ export default function App() {
                 {/* Primary Cluster Bubble */}
                 <div
                   className={`cluster absolute flex flex-col items-center justify-center text-center font-display font-semibold border-2 select-none z-10 ${
-                    isFadedOut ? 'opacity-10 pointer-events-none grayscale' : getVisibility(zoom, 0.3) ? 'opacity-100' : 'opacity-60 scale-95'
+                    isFadedOut ? 'opacity-10 grayscale hover:opacity-50 transition-opacity' : getVisibility(zoom, 0.3) ? 'opacity-100' : 'opacity-60 scale-95'
                   } ${
                     isMoveMode 
                       ? 'transition-none cursor-move border-cyan-400 border-dashed shadow-none'
@@ -1605,11 +1650,10 @@ export default function App() {
                       : undefined,
                     filter: sphereBaseColor === 'default' && spheresColorHue !== 0 ? `hue-rotate(${spheresColorHue}deg)` : undefined
                   }}
-                  onMouseDown={(e) => isMoveMode && handleClusterDragStart(cluster, e)}
+                  onMouseDown={isMoveMode ? (e) => handleClusterDragStart(cluster, e) : undefined}
                   onClick={(e) => {
-                    if (!isMoveMode) {
-                      handleClusterClick(cluster);
-                    }
+                    e.stopPropagation();
+                    handleClusterClick(cluster);
                   }}
                   onDoubleClick={(e) => {
                     if (isMoveMode) {
@@ -1621,7 +1665,7 @@ export default function App() {
                   }}
                 >
                   {/* Text hidden to require clicking to know the identity */}
-                </div>
+          </div>
 
                 {/* Photoshop Transform Bounding Box Outfit */}
                 {isMoveMode && (
@@ -1696,7 +1740,7 @@ export default function App() {
                   return (
                     <div
                       key={`sub-wrap-${idx}`}
-                      className={`absolute select-none z-20 hover:z-[100] anim-orbit-node`}
+                      className={`absolute select-none z-20 hover:z-[100] anim-orbit-node cursor-pointer`}
                       data-line-id={isOutside ? `line-sub-${cluster.id}-${idx}` : 'none'}
                       data-radius={scaledRadius}
                       data-cx={cluster.x * spherePositionScale}
@@ -1704,6 +1748,7 @@ export default function App() {
                       data-dist={scaledDistance}
                       data-start-ang={subtopic.angle}
                       data-dir={cluster.id === 'q-anon' ? 0 : (clusterIdx % 2 === 0 ? 1 : -1)}
+                      onClick={() => { setActiveCluster(cluster); flyToCluster(cluster); }}
                       style={{
                         left: '50%',
                         top: '50%',
@@ -1747,7 +1792,7 @@ export default function App() {
 
                   let detailOpacity = isFadedOut ? 0 : 1;
                   let detailScale = isFadedOut ? 0.75 : 1;
-                  let detailPointerEvents = 'none';
+                  let detailPointerEvents = 'auto';
 
                   const isActiveCluster = activeCluster && activeCluster.id === cluster.id;
 
@@ -1755,11 +1800,9 @@ export default function App() {
                     if (zoom >= 1.25 || isActiveCluster) {
                       detailOpacity = 0.9;
                       detailScale = 1;
-                      detailPointerEvents = 'auto';
                     } else {
                       detailOpacity = Math.max(0.1, (zoom / 1.25) * 0.9);
                       detailScale = Math.max(0.7, zoom / 1.25);
-                      detailPointerEvents = 'auto';
                     }
                   }
 
@@ -1822,26 +1865,34 @@ export default function App() {
         </div>
       </div>
 
-      {/* Minimized Search & Control Bar activator */}
-      {!isUiHidden && isSearchHidden && (
+{/* Minimized Search activator */}
+      {isSearchHidden && (
         <motion.button
-          initial={{ opacity: 0, y: -10, x: '-50%', scale: 0.8 }}
-          animate={{ opacity: 1, y: 0, x: '-50%', scale: 0.8 }}
-          exit={{ opacity: 0, y: -10, x: '-50%', scale: 0.8 }}
+          initial={{ opacity: 0, x: -10, scale: 0.8 }}
+          animate={{ opacity: 1, x: 0, scale: 0.75 }}
+          exit={{ opacity: 0, x: -10, scale: 0.8 }}
           onClick={() => setIsSearchHidden(false)}
-          className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 bg-[#070716]/90 border border-indigo-500/30 text-indigo-300 hover:text-white hover:bg-slate-900 rounded-full backdrop-blur-md shadow-[0_4px_15px_rgba(0,0,0,0.5)] font-mono text-[9px] tracking-widest uppercase flex items-center gap-1.5 cursor-pointer"
+          className="absolute top-0 left-0 z-40 p-2.5 bg-[#070716]/90 border border-cyan-500/30 text-cyan-400 hover:text-white hover:bg-slate-900 rounded-xl backdrop-blur-md shadow-[0_4px_15px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer font-mono text-[9px] tracking-widest uppercase"
+          title="Показать Поиск"
         >
-          <Search className="w-3.5 h-3.5 text-cyan-400" />
-          <span>ПОКАЗАТЬ ПОИСК И УПРАВЛЕНИЕ</span>
+          <Search className="w-4 h-4 text-cyan-400 animate-pulse" />
+          <span className="hidden sm:inline">ПОКАЗАТЬ ПОИСК</span>
         </motion.button>
       )}
 
-      {/* STANDALONE SEARCH: Top-left corner - всегда активна */}
-      {true && (
-        <div className="absolute top-0 left-0 z-40" style={{ transformOrigin: 'top left', transform: 'scale(0.75)' }}>
+      {/* STANDALONE SEARCH: Top-left corner */}
+      {!isSearchHidden && (
+        <div
+          className="absolute top-0 left-0 z-40"
+          style={{ transformOrigin: 'top left', transform: 'scale(0.75)' }}
+        >
           {!isSearchExpanded ? (
             <button
-              onClick={() => setIsSearchExpanded(true)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsSearchExpanded(true);
+              }}
+              onPointerDownCapture={(e) => e.stopPropagation()}
               className={`hud-panel hover:bg-slate-900 border transition-all duration-200 w-9 rounded-lg backdrop-blur-xl shadow-[0_10px_25px_rgba(0,0,0,0.4)] flex items-center justify-center h-9 shrink-0 cursor-pointer ${
                 searchQuery
                   ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-400'
@@ -1852,8 +1903,14 @@ export default function App() {
               <Search className="w-4 h-4" />
             </button>
           ) : (
-            <div className="hud-panel w-[28rem] max-w-[80vw] transition-all duration-300 flex items-center bg-[#070716]/80 backdrop-blur-xl border border-indigo-500/20 rounded-lg px-3 py-1.5 shadow-[0_10px_25px_rgba(0,0,0,0.5)] h-9 shrink-0">
-              <Search className="w-5 h-5 text-indigo-400 mr-2 flex-shrink-0" />
+            <div className="hud-panel w-[28rem] max-w-[80vw] transition-all duration-300 flex items-center bg-[#070716]/80 backdrop-blur-xl border border-indigo-500/20 rounded-lg shadow-[0_10px_25px_rgba(0,0,0,0.5)] h-9 shrink-0">
+              <button
+                onClick={() => setIsSearchExpanded(false)}
+                className="text-indigo-400 hover:text-white transition-colors cursor-pointer p-0.5"
+                title="Свернуть поиск"
+              >
+                <Search className="w-5 h-5 flex-shrink-0" />
+              </button>
               <input
                 type="text"
                 autoFocus
@@ -1861,38 +1918,42 @@ export default function App() {
                 placeholder="Поиск по Архиву..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDownCapture={(e) => e.stopPropagation()}
               />
               {searchQuery && (
                 <button 
-                  onClick={() => setSearchQuery('')}
-                  className="text-slate-400 hover:text-white transition-colors mr-2 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setSearchQuery(''); }}
+                  onPointerDownCapture={(e) => e.stopPropagation()}
+                  className="text-slate-400 hover:text-white transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
               <button
-                onClick={() => setIsSearchExpanded(false)}
-                className="text-slate-400 hover:text-red-400 transition-colors cursor-pointer p-1 rounded hover:bg-white/5"
-                title="Свернуть поиск"
+                onClick={(e) => { e.stopPropagation(); setIsSearchHidden(true); }}
+                onPointerDownCapture={(e) => e.stopPropagation()}
+                className="text-slate-400 hover:text-red-400 transition-colors cursor-pointer p-0.5"
+                title="Скрыть Поиск"
               >
-                <X className="w-4 h-4" />
+                <EyeOff className="w-4 h-4" />
               </button>
             </div>
           )}
         </div>
       )}
 
-      {/* TOP HUD: Search & Control Bar - всегда активна, даже при скрытом интерфейсе */}
+      {/* ВЕРТИКАЛЬНАЯ КОЛОНКА ИКОНОК УПРАВЛЕНИЯ СЛЕВА - всегда активна, даже при скрытом интерфейсе */}
       <AnimatePresence>
-        {!isSearchHidden && (
+        {true && (
           <motion.div
-            initial={{ opacity: 0, x: -20, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, scale: 0.75 }}
-            exit={{ opacity: 0, x: -20, scale: 0.65 }}
+            initial={{ opacity: 0, x: -20, scale: 0.6 }}
+            animate={isPanelBeingDragged('tophud') ? { opacity: 1, scale: 0.75 } : { opacity: 1, x: 0, scale: 0.75 }}
+            exit={{ opacity: 0, x: -20, scale: 0.6 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             style={{ transformOrigin: 'top left', ...getDragProps('tophud').style }}
-            {...getDragProps('tophud')} dragConstraints={dragContainerRef}
-            className={`absolute top-[-42px] left-[-2px] flex flex-col items-start gap-1.5 z-50 max-h-[calc(100vh-36px)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pointer-events-none ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50 rounded-xl bg-emerald-950/20' : ''}`}
+            {...getDragProps('tophud')}
+            className={`absolute top-[-42px] left-[-2px] flex flex-col items-start gap-1.5 z-50 max-h-[calc(100vh-36px)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50 rounded-xl bg-emerald-950/20' : ''}`}
           >
             {renderPanelLock('tophud')}
             <button
@@ -2052,8 +2113,13 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <div 
+        className={`absolute inset-0 z-30 transition-opacity duration-300 ${isUiHidden ? 'opacity-5 cursor-pointer' : 'opacity-100 pointer-events-none'}`}
+        onClick={() => isUiHidden && setIsUiHidden(false)}
+        title="Кликните для показа интерфейса"
+      >
       {/* Minimized Active Sphere Decryptor activator */}
-      {!isUiHidden && isDecryptorHidden && (
+      {isDecryptorHidden && (
         <motion.button
           initial={{ opacity: 0, x: 10, scale: 0.8 }}
           animate={{ opacity: 1, x: 0, scale: 0.8 }}
@@ -2067,16 +2133,16 @@ export default function App() {
         </motion.button>
       )}
 
-      {/* TOP-LEFT HUD: Active Sphere Decryptor / Status Panel */}
+      {/* TOP-RIGHT HUD: Active Sphere Decryptor / Status Panel */}
       <AnimatePresence>
-        {!isUiHidden && !isDecryptorHidden && (
+        {!isDecryptorHidden && (
           <motion.div
             initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            animate={isPanelBeingDragged('decryptor') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
             exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
             transition={{ duration: 0.3, ease: 'easeOut' }}
             style={{ transformOrigin: 'top right', ...getDragProps('decryptor').style }}
-            {...getDragProps('decryptor')} dragConstraints={dragContainerRef}
+            {...getDragProps('decryptor')}
             className={`hud-panel absolute top-[-20px] right-[-35px] w-64 max-h-screen bg-[#070716]/85 backdrop-blur-xl border border-white/5 p-3 rounded-xl shadow-[0_15px_35px_rgba(0,0,0,0.6)] z-30 flex flex-col gap-2.5 overflow-y-auto custom-scrollbar prevent-wheel-zoom ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
             {renderPanelLock('decryptor')}
@@ -2211,17 +2277,17 @@ export default function App() {
 
       {/* DETAILED ETHER ADJUSTMENT PANEL */}
       <AnimatePresence>
-        {!isUiHidden && isSettingsOpen && (
+        {isSettingsOpen && (
           <motion.div
             initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            animate={isPanelBeingDragged('decryptor') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
             exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
-            style={{ transformOrigin: 'bottom right', ...getDragProps('settings').style }}
-            {...getDragProps('settings')} dragConstraints={dragContainerRef}
+            style={{ transformOrigin: 'bottom right', ...getDragProps('parametris_efir').style }}
+            {...getDragProps('parametris_efir')}
             className={`hud-panel absolute bottom-4 right-4 w-64 bg-[#070716]/92 backdrop-blur-2xl border border-cyan-500/20 p-3.5 rounded-xl shadow-[0_25px_50px_rgba(0,0,0,0.85)] z-30 flex flex-col gap-2.5 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar prevent-wheel-zoom ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
-            {renderPanelLock('settings')}
+            {renderPanelLock('parametris_efir')}
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
               <div className="flex items-center gap-1.5">
                 <Sliders className="w-3.5 h-3.5 text-cyan-400" />
@@ -2349,14 +2415,41 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {!isUiHidden && isSizeSettingsOpen && (
+        {isMapSettingsOpen && (
           <motion.div
             initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            animate={isPanelBeingDragged('decryptor') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            style={{ transformOrigin: 'top right', ...getDragProps('map').style }}
+            {...getDragProps('map')}
+            className={`hud-panel absolute top-[120px] right-4 w-64 bg-[#070716]/92 backdrop-blur-2xl border border-indigo-500/20 p-3.5 rounded-xl shadow-[0_25px_50px_rgba(0,0,0,0.85)] z-30 flex flex-col gap-2.5 max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar prevent-wheel-zoom ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
+          >
+            {renderPanelLock('map')}
+            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+              <div className="flex items-center gap-1.5">
+                <Expand className="w-3.5 h-3.5 text-indigo-400" />
+                <h2 className="font-mono font-semibold text-[9px] tracking-widest text-slate-300 uppercase">КАРТА И НАВИГАЦИЯ</h2>
+              </div>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsMapSettingsOpen(false); }}
+              >
+                <X className="w-3.5 h-3.5 text-indigo-400" />
+              </button>
+            </div>
+
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {isSizeSettingsOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
+            animate={isPanelBeingDragged('decryptor') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
             exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             style={{ transformOrigin: 'top right', ...getDragProps('size').style }}
-            {...getDragProps('size')} dragConstraints={dragContainerRef}
+            {...getDragProps('size')}
             className={`hud-panel absolute top-[120px] right-4 w-64 bg-[#070716]/92 backdrop-blur-2xl border border-indigo-500/20 p-3.5 rounded-xl shadow-[0_25px_50px_rgba(0,0,0,0.85)] z-30 flex flex-col gap-2.5 max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar prevent-wheel-zoom ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
             {renderPanelLock('size')}
@@ -2367,95 +2460,27 @@ export default function App() {
               </div>
               <button 
                 onClick={(e) => { e.stopPropagation(); setIsSizeSettingsOpen(false); }}
-                className="text-slate-400 hover:text-red-400 transition-colors cursor-pointer p-0.5 rounded hover:bg-white/5"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5 text-indigo-400" />
               </button>
             </div>
-            
-            {/* Scale Coordinates (Placement) */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-medium text-xs">Расположение Сфер</span>
-                <span className="text-cyan-400 font-mono font-semibold text-[10px] bg-cyan-950/40 px-1.5 py-0.5 rounded border border-cyan-500/10">
-                  {spherePositionScale.toFixed(2)}x
-                </span>
-              </div>
-              <input 
-                type="range" 
-                min="0.4" 
-                max="2.2" 
-                step="0.05"
-                value={spherePositionScale}
-                onChange={(e) => setSpherePositionScale(parseFloat(e.target.value))}
-                className="w-full accent-cyan-400 h-1 bg-white/5 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
-
-            {/* Scale Topics Distance (Spread) */}
-            <div className="flex flex-col gap-1.5 pt-1">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-medium text-xs">Разлёт Связей (Темы)</span>
-                <span className="text-amber-400 font-mono font-semibold text-[10px] bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-500/10">
-                  {topicsRadiusScale.toFixed(2)}x
-                </span>
-              </div>
-              <input 
-                type="range" 
-                min="0.2" 
-                max="3.0" 
-                step="0.05"
-                value={topicsRadiusScale}
-                onChange={(e) => setTopicsRadiusScale(parseFloat(e.target.value))}
-                className="w-full accent-amber-400 h-1 bg-white/5 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
-
-            {/* Size scale */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-medium">Размер Сфер</span>
-                <span className="text-cyan-400 font-mono font-semibold text-[10px] bg-cyan-950/40 px-1.5 py-0.5 rounded border border-cyan-500/10">
-                  {sphereRadiusScale.toFixed(2)}x
-                </span>
-              </div>
-              <input 
-                type="range" 
-                min="0.4" 
-                max="2.2" 
-                step="0.05"
-                value={sphereRadiusScale}
-                onChange={(e) => setSphereRadiusScale(parseFloat(e.target.value))}
-                className="w-full accent-cyan-400 h-1 bg-white/5 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5 mt-2">
-              <button
-                onClick={() => {
-                  if (window.confirm("Восстановить исходные положения и размеры сфер?")) {
-                    customAnchorRef.current = {};
-                    resetClustersLayout();
-                  }
-                }}
-                className="w-full py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 hover:text-indigo-300 hover:border-indigo-500/30 text-indigo-400 border border-indigo-500/10 rounded-xl font-semibold tracking-wider font-mono text-[9px] uppercase transition-all duration-200 cursor-pointer text-center"
-              >
-                СБРОСИТЬ КООРДИНАТЫ СФЕР
-              </button>
+            <div className="flex flex-col gap-2.5 items-center justify-center py-6">
+              <span className="text-slate-500 text-xs font-mono">Настройки размера (в разработке)</span>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+
       <AnimatePresence>
-        {!isUiHidden && isSphereSizeQuickOpen && (
+        {isSphereSizeQuickOpen && (
           <motion.div
             initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            animate={isPanelBeingDragged('decryptor') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
             exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             style={{ transformOrigin: 'top right', ...getDragProps('spheresize').style }}
-            {...getDragProps('spheresize')} dragConstraints={dragContainerRef}
+            {...getDragProps('spheresize')}
             className={`hud-panel absolute top-[120px] right-4 w-64 bg-[#070716]/92 backdrop-blur-2xl border border-indigo-500/20 p-3.5 rounded-xl shadow-[0_25px_50px_rgba(0,0,0,0.85)] z-30 flex flex-col gap-3 max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar prevent-wheel-zoom ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
             {renderPanelLock('spheresize')}
@@ -2642,14 +2667,14 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {!isUiHidden && isPerfSettingsOpen && (
+        {isPerfSettingsOpen && (
           <motion.div
             initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            animate={isPanelBeingDragged('decryptor') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
             exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             style={{ transformOrigin: 'top right', ...getDragProps('perf').style }}
-            {...getDragProps('perf')} dragConstraints={dragContainerRef}
+            {...getDragProps('perf')}
             className={`hud-panel absolute top-[120px] right-4 w-64 bg-[#070716]/92 backdrop-blur-2xl border border-indigo-500/20 p-3.5 rounded-xl shadow-[0_25px_50px_rgba(0,0,0,0.85)] z-30 flex flex-col gap-2.5 max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar prevent-wheel-zoom ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
             {renderPanelLock('perf')}
@@ -2820,14 +2845,14 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {!isUiHidden && isMapSettingsOpen && (
+        {isMapSettingsOpen && (
           <motion.div
-            initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
-            exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
+            initial={{ opacity: 0, x: 20, scale: 0.65 }}
+            animate={isPanelBeingDragged('map') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, scale: 0.7 }}
+            exit={{ opacity: 0, x: 20, scale: 0.65 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             style={{ transformOrigin: 'top right', ...getDragProps('map').style }}
-            {...getDragProps('map')} dragConstraints={dragContainerRef}
+            {...getDragProps('map')}
             className={`hud-panel absolute top-[120px] right-4 w-64 bg-[#070716]/92 backdrop-blur-2xl border border-indigo-500/20 p-3.5 rounded-xl shadow-[0_25px_50px_rgba(0,0,0,0.85)] z-30 flex flex-col gap-2.5 max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar prevent-wheel-zoom ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
             {renderPanelLock('map')}
@@ -2908,30 +2933,33 @@ export default function App() {
       </AnimatePresence>
 
       {/* Minimized Navigator Legend activator */}
-      {!isUiHidden && isLegendHidden && (
-        <motion.button
+      {isLegendHidden && (
+<motion.button
           initial={{ opacity: 0, x: 10, scale: 0.8 }}
           animate={{ opacity: 1, x: 0, scale: 0.8 }}
           exit={{ opacity: 0, x: 10, scale: 0.8 }}
-          onClick={() => setIsLegendHidden(false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsLegendHidden(false);
+          }}
           className="absolute bottom-0 right-[-15px] z-30 p-2.5 bg-[#070716]/90 border border-purple-500/30 text-purple-400 hover:text-white hover:bg-slate-900 rounded-xl backdrop-blur-md shadow-[0_4px_15px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer font-mono text-[9px] tracking-widest uppercase"
           title="Показать Навигатор Архива"
         >
-          <HelpCircle className="w-4 h-4 text-purple-400 animate-pulse" />
+          <Compass className="w-4 h-4 text-purple-400 animate-pulse" />
           <span className="hidden sm:inline">ПОКАЗАТЬ НАВИГАТОР</span>
         </motion.button>
       )}
 
-      {/* BOTTOM-LEFT: Navigation Legend & Instructions */}
+      {/* BOTTOM-RIGHT: Navigation Legend & Instructions */}
       <AnimatePresence>
-        {!isUiHidden && !isLegendHidden && (
+        {!isLegendHidden && (
           <motion.div
-            initial={{ opacity: 0, x: 20, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, scale: 0.7 }}
-            exit={{ opacity: 0, x: 20, scale: 0.65 }}
+            initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
+            animate={isPanelBeingDragged('decryptor') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             style={{ transformOrigin: 'bottom right', ...getDragProps('navigator').style }}
-            {...getDragProps('navigator')} dragConstraints={dragContainerRef}
+            {...getDragProps('navigator')}
             className={`hud-panel absolute bottom-[-45px] right-[-35px] w-60 bg-[#070716]/85 backdrop-blur-xl border border-white/5 p-3.5 rounded-xl shadow-[0_20px_45px_rgba(0,0,0,0.7)] z-20 ${isPanelsUnlocked ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
             {renderPanelLock('navigator')}
@@ -2940,10 +2968,13 @@ export default function App() {
                 <Compass className="w-4 h-4 text-purple-400" />
                 <h2 className="font-display font-medium text-xs text-slate-200 tracking-wider">НАВИГАТОР АРХИВА</h2>
               </div>
-              <button
-                onClick={() => setIsLegendHidden(true)}
-                className="text-slate-400 hover:text-red-400 transition-colors cursor-pointer p-1 rounded hover:bg-white/5 flex items-center justify-center animate-none"
-                title="Скрыть Навигатор"
+<button
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   setIsLegendHidden(true);
+                 }}
+                 className="text-slate-400 hover:text-red-400 transition-colors cursor-pointer p-1 rounded hover:bg-white/5 flex items-center justify-center animate-none"
+                 title="Скрыть Навигатор"
               >
                 <EyeOff className="w-4 h-4" />
               </button>
@@ -2955,40 +2986,60 @@ export default function App() {
               <p>• <span className="font-semibold text-slate-100">Zoom-уровни</span> — открой {zoom * 100 < 70 ? '① Кластеры' : zoom * 100 < 125 ? '② Субтопики' : '③ Полная Детализация'}</p>
             </div>
             <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono text-purple-400">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
-                БАРЬЕР: 2025-2026
-              </div>
+              <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono text-purple-400" />
               <span className="text-[10px] font-mono bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">
-                v3.5 Live
+                v5.3 Live
               </span>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+      </div>
+
+<div className={`absolute inset-0 z-40 transition-opacity duration-300 pointer-events-none ${isUiHidden ? 'opacity-5' : ''}`}>
+
       {/* Catalog activator moved to left vertical toolbar icon */}
+
+      {/* Minimized Catalog activator */}
+      {isCatalogHidden && (
+        <motion.button
+          initial={{ opacity: 0, x: -10, scale: 0.8 }}
+          animate={{ opacity: 1, x: 0, scale: 0.7 }}
+          exit={{ opacity: 0, x: -10, scale: 0.8 }}
+          onClick={() => setIsCatalogHidden(false)}
+          className="absolute bottom-1.5 left-0 z-40 p-2.5 bg-[#070716]/90 border border-indigo-500/30 text-indigo-400 hover:text-white hover:bg-slate-900 rounded-xl backdrop-blur-md shadow-[0_4px_15px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer font-mono text-[9px] tracking-widest uppercase pointer-events-auto"
+          title="Показать Каталог Сфер"
+        >
+          <Database className="w-4 h-4 text-indigo-400 animate-pulse" />
+          <span className="hidden sm:inline">ПОКАЗАТЬ КАТАЛОГ</span>
+        </motion.button>
+      )}
 
       {/* LEFT HUD: Sidebar Cluster List (Framer Motion enabled) */}
       <AnimatePresence>
-        {!isUiHidden && !isCatalogHidden && (
-          <motion.div
+        {!isCatalogHidden && (
+          <>
+            {renderPanelLock('catalog')}
+            <motion.div
             initial={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
+            animate={isPanelBeingDragged('catalog') ? { opacity: 1, scale: 0.7 } : { opacity: 1, x: 0, y: 0, scale: 0.7 }}
             exit={{ opacity: 0, x: 25, y: -25, scale: 0.65 }}
             transition={(isCatalogMovable || getDragProps('catalog').drag) ? { type: 'tween', duration: 0 } : { duration: 0.25, ease: 'easeOut' }}
             style={{ transformOrigin: 'bottom left', ...(isCatalogMovable ? { cursor: 'move' } : getDragProps('catalog').style) }}
             drag={isCatalogMovable || getDragProps('catalog').drag}
             dragMomentum={false}
-            dragConstraints={dragContainerRef}
-            className={`hud-panel absolute bottom-[6px] left-0 w-64 max-h-[calc(100vh-80px)] overflow-hidden flex flex-col bg-[#070716]/50 backdrop-blur-xl border border-white/5 rounded-xl shadow-[0_20px_45px_rgba(0,0,0,0.8)] z-40 ${isCatalogOpen ? 'h-[320px]' : 'h-[40px]'} z-40 ${isPanelsUnlocked || isCatalogMovable ? 'ring-2 ring-emerald-500/50' : ''}`}
+            dragElastic={0}
+            dragTransition={{ bounceStiffness: 0, bounceDamping: 0, power: 0, timeConstant: 0 }}
+            onDragStart={() => setPanelDraggingId('catalog')}
+            onDragEnd={() => setPanelDraggingId(null)}
+            whileDrag={{ transition: { duration: 0 } }}
+            className={`hud-panel absolute bottom-[6px] left-0 w-64 max-h-[calc(100vh-80px)] overflow-hidden flex flex-col bg-[#070716] border border-white/20 rounded-xl shadow-[0_20px_45px_rgba(0,0,0,0.9)] z-40 opacity-100 ${isCatalogOpen ? 'h-[320px]' : 'h-[40px]'} pointer-events-auto ${isPanelsUnlocked || isCatalogMovable ? 'ring-2 ring-emerald-500/50' : ''} ${isPanelBeingDragged('catalog') ? '' : 'transition-all duration-300'} z-40 pointer-events-auto ${isPanelsUnlocked || isCatalogMovable ? 'ring-2 ring-emerald-500/50' : ''}`}
           >
-            {renderPanelLock('catalog')}
             {activeCluster ? (
               <>
-                <div 
-                  className="flex items-center justify-between p-3 border-b border-white/5 flex-shrink-0 cursor-pointer hover:bg-white/5 transition-colors"
-                  onClick={() => setIsCatalogOpen(!isCatalogOpen)}
+                <div
+                  className="flex items-center justify-between px-3 py-2 border-b border-white/5 flex-shrink-0"
                 >
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     <BookOpen className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
@@ -3017,7 +3068,6 @@ export default function App() {
                     >
                       <EyeOff className="w-3.5 h-3.5" />
                     </button>
-                    <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-300 ${isCatalogOpen ? 'rotate-90' : ''}`} />
                   </div>
                 </div>
                 
@@ -3046,13 +3096,12 @@ export default function App() {
               </>
             ) : (
               <>
-                <div 
-                  className="flex items-center justify-between p-3 border-b border-white/5 flex-shrink-0 cursor-pointer hover:bg-white/5 transition-colors"
-                  onClick={() => setIsCatalogOpen(!isCatalogOpen)}
+                <div
+                  className="flex items-center justify-between px-3 py-2 border-b border-white/5 flex-shrink-0 pointer-events-auto"
                 >
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     <Database className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
-                    <h3 className="font-display font-medium text-[10px] text-slate-300 tracking-wider">
+                    <h3 className="font-display font-medium text-[10px] text-white tracking-wider">
                       КАТАЛОГ СФЕР ({filteredClusters.length})
                     </h3>
                   </div>
@@ -3079,7 +3128,6 @@ export default function App() {
                     >
                       <EyeOff className="w-4 h-4" />
                     </button>
-                    <ChevronRight className={`w-4 h-4 text-slate-500 transition-transform duration-300 ${isCatalogOpen ? 'rotate-90' : ''}`} />
                   </div>
                 </div>
                 
@@ -3112,24 +3160,28 @@ export default function App() {
               </>
             )}
           </motion.div>
+          </>
         )}
       </AnimatePresence>
+      </div>
 
-      {/* ALWAYS VISIBLE SHOW UI BUTTON (Only shown when UI is hidden) */}
+      {/* ALWAYS VISIBLE UI TOGGLE BUTTON */}
       <AnimatePresence>
-        {isUiHidden && (
+        {true && (
           <motion.button
             initial={{ opacity: 0, scale: 0.48 }}
             animate={{ opacity: 1, scale: 0.6 }}
             exit={{ opacity: 0, scale: 0.48 }}
             whileHover={{ scale: 0.65 }}
-            onClick={() => setIsUiHidden(false)}
+            onClick={() => setIsUiHidden(prev => !prev)}
             style={{ transformOrigin: 'top right' }}
-            className="absolute top-[104px] right-6 z-50 p-3 bg-[#070716]/90 border border-indigo-500/30 text-indigo-300 hover:text-white rounded-xl backdrop-blur-xl transition-colors duration-200 shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex items-center justify-center cursor-pointer scale-[0.6]"
-            title="Показать интерфейс"
+            className="absolute top-[104px] right-6 z-50 p-3 bg-[#070716]/90 border border-indigo-500/30 text-indigo-300 hover:text-white rounded-xl backdrop-blur-xl transition-colors duration-200 shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex items-center justify-center cursor-pointer"
+            title={isUiHidden ? "Показать интерфейс" : "Скрыть интерфейс"}
           >
-            <Eye className="w-5 h-5" />
-            <span className="ml-2 text-xs font-semibold tracking-wider font-sans hidden sm:inline">ПОКАЗАТЬ ИНТЕРФЕЙС</span>
+            {isUiHidden ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+            <span className="ml-2 text-xs font-semibold tracking-wider font-sans hidden sm:inline">
+              {isUiHidden ? 'ПОКАЗАТЬ ИНТЕРФЕЙС' : 'СКРЫТЬ ИНТЕРФЕЙС'}
+            </span>
           </motion.button>
         )}
       </AnimatePresence>
@@ -3268,10 +3320,14 @@ export default function App() {
             drag
             dragControls={passportDragControls}
             dragListener={false}
-            dragConstraints={dragContainerRef}
             dragMomentum={false}
+            dragElastic={0}
+            dragTransition={{ bounceStiffness: 0, bounceDamping: 0, power: 0, timeConstant: 0 }}
+            onDragStart={() => setPanelDraggingId('passport')}
+            onDragEnd={() => setPanelDraggingId(null)}
+            whileDrag={{ transition: { duration: 0 } }}
             initial={{ scale: 0.92, y: 15, opacity: 0 }}
-            animate={{ scale: 1, y: 0, opacity: 1 }}
+            animate={isPanelBeingDragged('passport') ? { scale: 1, opacity: 1 } : { scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.92, opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
             className="fixed bg-[#050510]/95 border-2 border-cyan-500/30 rounded-2xl shadow-[0_30px_70px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col prevent-wheel-zoom z-[110] max-h-[90vh]"
@@ -3852,6 +3908,8 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <DebugPanel />
 
     </div>
   );

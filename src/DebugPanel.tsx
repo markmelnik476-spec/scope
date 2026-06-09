@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { X, Lock, Unlock, Zap } from 'lucide-react';
 
 export type LogEntry = {
   id: number;
@@ -17,6 +15,7 @@ export function debugLog(entry: Omit<LogEntry, 'id' | 'time'>) {
   externalAddLog?.(entry);
 }
 
+// ─── Строка лога с кнопкой копирования ────────────────────────────────────
 function LogRow({
   log,
   typeColor,
@@ -35,40 +34,63 @@ function LogRow({
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
+    }).catch(() => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
     });
   };
 
   return (
     <div
-      className="flex items-start gap-2 px-3 py-1.5 mb-0.5 transition-colors duration-150 group hover:bg-white/5 border-l-2"
       style={{
-        borderColor: typeColor[log.type],
-        backgroundColor: typeBg[log.type],
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '8px',
+        padding: '3px 8px 3px 12px',
+        background: typeBg[log.type],
+        borderLeft: `2px solid ${typeColor[log.type]}`,
+        marginBottom: '1px',
+        position: 'relative',
       }}
+      className="debug-row"
     >
-      <span className="text-slate-500 text-[9px] whitespace-nowrap flex-shrink-0 min-w-fit pt-0.5">
+      <span style={{ color: '#334155', fontSize: '9px', whiteSpace: 'nowrap', paddingTop: '2px', minWidth: '80px' }}>
         {log.time}
       </span>
-      <span 
-        className="text-[9px] whitespace-nowrap pt-0.5 min-w-fit uppercase tracking-widest font-semibold flex-shrink-0"
-        style={{ color: typeColor[log.type] }}
-      >
+      <span style={{ color: typeColor[log.type], fontSize: '9px', whiteSpace: 'nowrap', paddingTop: '2px', minWidth: '36px', textTransform: 'uppercase', letterSpacing: '1px' }}>
         {log.type}
       </span>
-      <span className="text-slate-200 text-[10px] word-break break-all leading-relaxed flex-1">
+      <span style={{ color: '#cbd5e1', fontSize: '10px', wordBreak: 'break-all', lineHeight: 1.4, flex: 1 }}>
         {log.message}
         {log.detail && (
-          <span className="text-slate-500 ml-1.5">{log.detail}</span>
+          <span style={{ color: '#64748b', marginLeft: '6px' }}>{log.detail}</span>
         )}
       </span>
+      {/* Кнопка копирования */}
       <button
         onClick={handleCopy}
         title="Копировать"
-        className="flex-shrink-0 w-5 h-5 rounded border transition-all duration-150 flex items-center justify-center text-[10px] p-0 cursor-pointer"
         style={{
-          borderColor: copied ? typeColor[log.type] : 'rgba(255,255,255,0.08)',
-          backgroundColor: copied ? `${typeColor[log.type]}22` : 'transparent',
+          flexShrink: 0,
+          width: '20px',
+          height: '20px',
+          borderRadius: '4px',
+          border: `1px solid ${copied ? typeColor[log.type] : 'rgba(255,255,255,0.08)'}`,
+          background: copied ? `${typeColor[log.type]}22` : 'transparent',
           color: copied ? typeColor[log.type] : '#475569',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '10px',
+          transition: 'all 0.15s',
+          padding: 0,
         }}
       >
         {copied ? '✓' : '⎘'}
@@ -81,7 +103,9 @@ export function DebugPanel() {
   const [open, setOpen] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<'all' | 'click' | 'error' | 'warn' | 'info' | 'event'>('all');
-  const [isLocked, setIsLocked] = useState(true);
+  const [panelPos, setPanelPos] = useState({ x: 0, y: -56 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id' | 'time'>) => {
@@ -93,11 +117,13 @@ export function DebugPanel() {
     });
   }, []);
 
+  // Регистрируем глобальный хук
   useEffect(() => {
     externalAddLog = addLog;
     return () => { externalAddLog = null; };
   }, [addLog]);
 
+  // Перехват console.error / console.warn
   useEffect(() => {
     const origError = console.error.bind(console);
     const origWarn = console.warn.bind(console);
@@ -122,6 +148,7 @@ export function DebugPanel() {
     };
   }, [addLog]);
 
+  // Перехват window.onerror и unhandledrejection
   useEffect(() => {
     const onError = (e: ErrorEvent) => {
       addLog({ type: 'error', message: e.message, detail: `${e.filename}:${e.lineno}:${e.colno}` });
@@ -137,6 +164,7 @@ export function DebugPanel() {
     };
   }, [addLog]);
 
+  // Перехват глобальных кликов с определением цели
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -154,9 +182,31 @@ export function DebugPanel() {
     return () => window.removeEventListener('click', onClick, { capture: true });
   }, [addLog]);
 
+  // Авто-скролл вниз
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs, open]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - panelPos.x, y: e.clientY - panelPos.y });
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      setPanelPos({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+    };
+    const handleMouseUp = () => setIsDragging(false);
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, dragStart]);
 
   const filtered = filter === 'all' ? logs : logs.filter(l => l.type === filter);
 
@@ -176,122 +226,122 @@ export function DebugPanel() {
   };
 
   const counts = logs.reduce((acc, l) => { acc[l.type] = (acc[l.type] || 0) + 1; return acc; }, {} as Record<string, number>);
-  const hasErrors = counts.error && counts.error > 0;
 
   return (
     <>
-      {/* Debug Button */}
-      <motion.button
-        initial={{ opacity: 0, scale: 0.6 }}
-        animate={{ opacity: 1, scale: 0.75 }}
-        exit={{ opacity: 0, scale: 0.6 }}
+      {/* Иконка-кнопка */}
+      <button
         onClick={() => setOpen(o => !o)}
         title="Debug Panel"
-        style={{ transformOrigin: 'bottom right' }}
-        className={`fixed bottom-4 right-4 z-[9998] w-9 h-9 rounded-lg backdrop-blur-xl transition-all duration-200 flex items-center justify-center cursor-pointer border shadow-[0_10px_25px_rgba(0,0,0,0.4)] ${
-          hasErrors
-            ? 'bg-red-950/40 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(248,113,113,0.3)]'
-            : 'bg-[#070716]/80 border-cyan-500/20 text-cyan-400 hover:text-white'
-        }`}
+        style={{
+          position: 'fixed',
+          bottom: '12px',
+          right: '12px',
+          zIndex: 9999,
+          width: '36px',
+          height: '36px',
+          borderRadius: '50%',
+          background: counts.error ? 'rgba(248,113,113,0.25)' : 'rgba(7,7,22,0.85)',
+          border: `2px solid ${counts.error ? '#f87171' : '#22d3ee44'}`,
+          color: counts.error ? '#f87171' : '#22d3ee',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          backdropFilter: 'blur(8px)',
+          boxShadow: counts.error ? '0 0 12px rgba(248,113,113,0.5)' : '0 0 8px rgba(34,211,238,0.2)',
+          fontSize: '14px',
+          fontFamily: 'monospace',
+          transition: 'all 0.2s',
+        }}
       >
-        {hasErrors ? (
-          <>
-            <span className="font-mono font-bold text-xs">!</span>
-            {counts.error > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold border border-red-600 shadow-lg">
-                {counts.error > 99 ? '99+' : counts.error}
-              </span>
-            )}
-          </>
-        ) : (
-          <Zap className="w-4 h-4" />
-        )}
-      </motion.button>
+        {counts.error ? '!' : '⬛'}
+        {counts.error ? (
+          <span style={{ position: 'absolute', top: -5, right: -5, background: '#f87171', color: '#000', borderRadius: '50%', fontSize: '9px', width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+            {counts.error > 99 ? '99+' : counts.error}
+          </span>
+        ) : null}
+      </button>
 
-      {/* Debug Panel */}
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, x: 25, y: 25, scale: 0.65 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 0.7 }}
-            exit={{ opacity: 0, x: 25, y: 25, scale: 0.65 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
-            style={{ transformOrigin: 'bottom right' }}
-            className="hud-panel fixed bottom-[-45px] right-[-35px] w-96 h-96 bg-[#070716]/92 backdrop-blur-2xl border border-cyan-500/20 p-3 rounded-xl shadow-[0_25px_50px_rgba(0,0,0,0.85)] z-[9998] flex flex-col gap-2 prevent-wheel-zoom"
+      {/* Панель */}
+      {open && (
+        <div
+          style={{
+            position: 'fixed',
+            left: `${panelPos.x}px`,
+            top: `${panelPos.y}px`,
+            zIndex: 9999,
+            width: '480px',
+            maxWidth: 'calc(100vw - 24px)',
+            height: '400px',
+            background: 'rgba(4,4,18,0.97)',
+            border: '1px solid rgba(34,211,238,0.2)',
+            borderRadius: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+            backdropFilter: 'blur(16px)',
+            fontFamily: 'monospace',
+            cursor: isDragging ? 'grabbing' : 'grab',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Заголовок */}
+          <div
+            style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', gap: '8px', flexShrink: 0, cursor: isDragging ? 'grabbing' : 'grab', userSelect: 'none' }}
+            onMouseDown={handleMouseDown}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/5 pb-2 flex-shrink-0">
-              <div className="flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                <h2 className="font-mono font-semibold text-[9px] tracking-widest text-slate-300 uppercase">DEBUG ЛОГИРОВАНИЕ</h2>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setIsLocked(!isLocked)}
-                  className={`w-fit p-0.5 rounded transition-colors flex-shrink-0 ${isLocked ? 'text-slate-600 hover:text-amber-400' : 'text-amber-400 hover:text-slate-500'}`}
-                  title={isLocked ? "Разблокировать панель" : "Заблокировать панель"}
-                >
-                  {isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                </button>
-                <button
-                  onClick={() => setOpen(false)}
-                  className="text-slate-400 hover:text-red-400 transition-colors cursor-pointer p-0.5 rounded hover:bg-white/5"
-                  title="Закрыть Debug Panel"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Filter Buttons */}
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <span className="text-[9px] text-slate-500 font-mono mr-1">ФИЛЬТР:</span>
-              {(['all', 'click', 'error', 'warn', 'event'] as const).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={`text-[8px] py-0.5 px-1.5 rounded-lg border transition-all uppercase tracking-wider cursor-pointer font-mono font-semibold ${
-                    filter === f
-                      ? 'bg-white/5 border-white/20 text-white'
-                      : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-300 hover:border-white/20'
-                  }`}
-                >
-                  {f}{f !== 'all' && counts[f] ? ` (${counts[f]})` : ''}
-                </button>
-              ))}
-              <div className="flex-1" />
+            <span style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 'bold', letterSpacing: '2px', textTransform: 'uppercase' }}>DEBUG</span>
+            <span style={{ color: '#475569', fontSize: '10px' }}>{logs.length} entries</span>
+            <div style={{ flex: 1 }} />
+            {/* Фильтры */}
+            {(['all', 'click', 'error', 'warn', 'event'] as const).map(f => (
               <button
-                onClick={() => setLogs([])}
-                className="text-[8px] py-0.5 px-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-300 cursor-pointer uppercase tracking-wider font-mono font-semibold transition-all"
+                key={f}
+                onClick={() => setFilter(f)}
+                style={{
+                  fontSize: '9px',
+                  padding: '2px 7px',
+                  borderRadius: '6px',
+                  border: `1px solid ${filter === f ? (f === 'all' ? '#22d3ee' : typeColor[f as LogEntry['type']]) : 'rgba(255,255,255,0.1)'}`,
+                  background: filter === f ? 'rgba(255,255,255,0.06)' : 'transparent',
+                  color: filter === f ? (f === 'all' ? '#22d3ee' : typeColor[f as LogEntry['type']]) : '#64748b',
+                  cursor: 'pointer',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}
               >
-                ОЧИСТИТЬ
+                {f}{f !== 'all' && counts[f] ? ` (${counts[f]})` : ''}
               </button>
-            </div>
+            ))}
+            <button
+              onClick={() => setLogs([])}
+              style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#64748b', cursor: 'pointer', letterSpacing: '1px' }}
+            >
+              CLR
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              style={{ fontSize: '14px', background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0 4px' }}
+            >
+              ×
+            </button>
+          </div>
 
-            {/* Log List */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar prevent-wheel-zoom">
-              {filtered.length === 0 ? (
-                <div className="text-slate-500 text-[11px] text-center mt-16 font-mono">нет записей</div>
-              ) : (
-                <>
-                  {filtered.map(log => (
-                    <LogRow key={log.id} log={log} typeColor={typeColor} typeBg={typeBg} />
-                  ))}
-                  <div ref={bottomRef} />
-                </>
-              )}
-            </div>
-
-            {/* Footer Stats */}
-            <div className="border-t border-white/5 pt-2 flex-shrink-0">
-              <div className="text-[9px] text-slate-400 font-mono">
-                Всего записей: <span className="text-cyan-400">{logs.length}</span>
-                {hasErrors && <span className="ml-2">Ошибок: <span className="text-red-400">{counts.error}</span></span>}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          {/* Логи */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+            {filtered.length === 0 && (
+              <div style={{ color: '#334155', fontSize: '11px', textAlign: 'center', marginTop: '40px' }}>нет записей</div>
+            )}
+            {filtered.map(log => {
+              const row = <LogRow log={log} typeColor={typeColor} typeBg={typeBg} />;
+              return React.cloneElement(row, { key: log.id });
+            })}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+      )}
     </>
   );
 }
