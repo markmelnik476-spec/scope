@@ -43,11 +43,11 @@ export function debugLog(entry: Omit<LogEntry, 'id' | 'time' | 'timestamp'>) {
 }
 
 // ─── Utility ────────────────────────────────────────────────────────────────
-function formatTime(d: Date): string {
+export function formatTime(d: Date): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
 }
 
-function formatRelative(ts: number): string {
+export function formatRelative(ts: number): string {
   const diff = Date.now() - ts;
   if (diff < 1000) return 'just now';
   if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
@@ -55,7 +55,7 @@ function formatRelative(ts: number): string {
   return `${Math.floor(diff / 3600000)}h ago`;
 }
 
-function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1048576).toFixed(1)} MB`;
