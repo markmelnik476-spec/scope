@@ -1,38 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { LogEntry, LogType, PerfSnapshot, NetworkEntry, TabId } from './types/debug-panel';
+import { formatTime, formatRelative, formatBytes, argsToString } from './utils/format';
+import { copyToClipboard } from './utils/clipboard';
+import { useMouseDrag, useMouseResize } from './hooks/useMouseDrag';
+import { TYPE_COLOR, TYPE_BG, BTN_BASE } from './utils/debug-styles';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-export type LogType = 'click' | 'error' | 'warn' | 'info' | 'event' | 'network' | 'console';
-
-export type LogEntry = {
-  id: number;
-  time: string;
-  timestamp: number;
-  type: LogType;
-  message: string;
-  detail?: string;
-  starred?: boolean;
-  meta?: Record<string, unknown>;
-};
-
-type PerfSnapshot = {
-  fps: number;
-  memory: number | null;
-  domNodes: number;
-  timestamp: number;
-};
-
-type NetworkEntry = {
-  id: number;
-  method: string;
-  url: string;
-  status: number | null;
-  duration: number | null;
-  size: string | null;
-  startTime: number;
-  pending: boolean;
-};
-
-type TabId = 'logs' | 'performance' | 'network';
+// Re-export types for consumers
+export type { LogType, LogEntry } from './types/debug-panel';
 
 // ─── Globals ────────────────────────────────────────────────────────────────
 let globalLogId = 0;
@@ -41,58 +15,6 @@ let externalAddLog: ((entry: Omit<LogEntry, 'id' | 'time' | 'timestamp'>) => voi
 export function debugLog(entry: Omit<LogEntry, 'id' | 'time' | 'timestamp'>) {
   externalAddLog?.(entry);
 }
-
-// ─── Utility ────────────────────────────────────────────────────────────────
-function formatTime(d: Date): string {
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
-}
-
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 1000) return 'just now';
-  if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  return `${Math.floor(diff / 3600000)}h ago`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
-}
-
-// ─── Styles ─────────────────────────────────────────────────────────────────
-const TYPE_COLOR: Record<LogType, string> = {
-  click: '#22d3ee',
-  error: '#f87171',
-  warn: '#fbbf24',
-  info: '#a78bfa',
-  event: '#34d399',
-  network: '#fb923c',
-  console: '#94a3b8',
-};
-
-const TYPE_BG: Record<LogType, string> = {
-  click: 'rgba(34,211,238,0.08)',
-  error: 'rgba(248,113,113,0.10)',
-  warn: 'rgba(251,191,36,0.08)',
-  info: 'rgba(167,139,250,0.08)',
-  event: 'rgba(52,211,153,0.08)',
-  network: 'rgba(251,146,60,0.08)',
-  console: 'rgba(148,163,184,0.06)',
-};
-
-const BTN_BASE: React.CSSProperties = {
-  fontSize: '9px',
-  padding: '2px 7px',
-  borderRadius: '6px',
-  border: '1px solid rgba(255,255,255,0.1)',
-  background: 'transparent',
-  color: '#64748b',
-  cursor: 'pointer',
-  textTransform: 'uppercase',
-  letterSpacing: '1px',
-};
 
 // ─── LogRow ─────────────────────────────────────────────────────────────────
 const LogRow = React.memo(function LogRow({
@@ -113,16 +35,7 @@ const LogRow = React.memo(function LogRow({
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     const text = [log.time, log.type.toUpperCase(), log.message, log.detail].filter(Boolean).join('  ');
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    }).catch(() => {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+    copyToClipboard(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
@@ -304,15 +217,8 @@ export function DebugPanel() {
   const [networkEntries, setNetworkEntries] = useState<NetworkEntry[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
-  // Drag state
-  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
-  // Resize state
-  const [panelSize, setPanelSize] = useState({ w: 540, h: 420 });
-  const [isResizing, setIsResizing] = useState(false);
-  const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const { panelSize, handleResizeStart } = useMouseResize({ w: 540, h: 420 });
+  const { panelPos, isDragging, handleDragStart } = useMouseDrag(null, panelSize);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
@@ -340,19 +246,18 @@ export function DebugPanel() {
 
     console.error = (...args: unknown[]) => {
       origError(...args);
-      const asText = args.map(a => String(a)).join(' ');
       if (args.some(a => typeof a === 'string' && a.includes('[getThemeColors]'))) return;
       if (args.some(a => typeof a === 'string' && a.includes('[DebugPanel]'))) return;
       const err = args.find((a): a is Error => a instanceof Error);
-      addLog({ type: 'error', message: asText, detail: err?.stack });
+      addLog({ type: 'error', message: argsToString(args), detail: err?.stack });
     };
     console.warn = (...args: unknown[]) => {
       origWarn(...args);
-      addLog({ type: 'warn', message: args.map(a => String(a)).join(' ') });
+      addLog({ type: 'warn', message: argsToString(args) });
     };
     console.log = (...args: unknown[]) => {
       origLog(...args);
-      const asText = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      const asText = argsToString(args);
       if (asText.includes('[DebugPanel]')) return;
       addLog({ type: 'console', message: asText });
     };
@@ -455,58 +360,6 @@ export function DebugPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  // Drag handling
-  const handleDragStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const pos = panelPos ?? { x: Math.max(12, window.innerWidth - panelSize.w - 12), y: Math.max(12, window.innerHeight - panelSize.h - 56) };
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - pos.x, y: e.clientY - pos.y });
-    if (!panelPos) setPanelPos(pos);
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => {
-      const x = Math.max(0, Math.min(window.innerWidth - 100, e.clientX - dragStart.x));
-      const y = Math.max(0, Math.min(window.innerHeight - 40, e.clientY - dragStart.y));
-      setPanelPos({ x, y });
-    };
-    const onUp = () => setIsDragging(false);
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-  }, [isDragging, dragStart]);
-
-  // Resize handling
-  const handleResizeStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    resizeStart.current = { x: e.clientX, y: e.clientY, w: panelSize.w, h: panelSize.h };
-  };
-
-  useEffect(() => {
-    if (!isResizing) return;
-    const onMove = (e: MouseEvent) => {
-      const dw = e.clientX - resizeStart.current.x;
-      const dh = e.clientY - resizeStart.current.y;
-      setPanelSize({
-        w: Math.max(360, Math.min(window.innerWidth - 24, resizeStart.current.w + dw)),
-        h: Math.max(200, Math.min(window.innerHeight - 60, resizeStart.current.h + dh)),
-      });
-    };
-    const onUp = () => setIsResizing(false);
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-  }, [isResizing]);
-
   // Toggle star
   const toggleStar = useCallback((id: number) => {
     setLogs(prev => prev.map(l => l.id === id ? { ...l, starred: !l.starred } : l));
@@ -536,7 +389,7 @@ export function DebugPanel() {
   // Copy all visible
   const handleCopyAll = () => {
     const text = filtered.map(l => `[${l.time}] ${l.type.toUpperCase()} ${l.message}${l.detail ? ' | ' + l.detail : ''}`).join('\n');
-    navigator.clipboard.writeText(text).catch(() => {});
+    copyToClipboard(text);
   };
 
   // Scroll detection for auto-pause
