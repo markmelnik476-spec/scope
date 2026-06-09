@@ -59,8 +59,12 @@ const PRESET_COLORS = [
   { value: "#1e293b", label: "🌑 Бездна" }
 ];
 
+const shortenTextCache: Record<string, string> = {};
+
 function shortenText(text: string): string {
   if (!text) return text;
+  const cached = shortenTextCache[text];
+  if (cached) return cached;
   let res = text;
   const replacements: Array<{ pattern: RegExp; replacement: string }> = [
     { pattern: /космическ(ая|ий|ое|ие|ую|их|им)/gi, replacement: 'косм.' },
@@ -111,8 +115,33 @@ function shortenText(text: string): string {
       return replacement;
     });
   }
-  return res.trim();
+  const result = res.trim();
+  shortenTextCache[text] = result;
+  return result;
 }
+
+const COLOR_THEMES = [
+  { id: 'default', name: 'Архивы', label: 'Оригинал' },
+  { id: 'purple_cyan', name: 'Акаша', label: 'Акаша Пурпур', gradient: 'linear-gradient(135deg, #7028e4 0%, #30cfd0 100%)' },
+  { id: 'crimson_gold', name: 'Вспышка', label: 'Алый Янтарь', gradient: 'linear-gradient(135deg, #f857a6 0%, #ff5858 100%)' },
+  { id: 'emerald_void', name: 'Матрица', label: 'Изумруд', gradient: 'linear-gradient(135deg, #0ba360 0%, #3cba92 100%)' },
+  { id: 'cyber_pink', name: 'Неон', label: 'Кибер Розовый', gradient: 'linear-gradient(135deg, #f9d423 0%, #ff4e50 100%)' },
+  { id: 'monochrome_white', name: 'Фантом', label: 'Белый Матрикс', gradient: 'linear-gradient(135deg, #e6e9f0 0%, #eef1f5 100%)' },
+  { id: 'custom', name: 'Кастом', label: 'Выбор цвета' }
+];
+
+const SHAPE_PRESETS = [
+  { id: 'circle', name: 'Круг', clipPath: 'none', useRoundness: true },
+  { id: 'square', name: 'Квадрат', clipPath: 'none', forceRadius: '0%' },
+  { id: 'rounded', name: 'Скругл.', clipPath: 'none', forceRadius: '22%' },
+  { id: 'ellipse', name: 'Эллипс', clipPath: 'none', useRoundness: true, ellipse: true },
+  { id: 'triangle', name: 'Треуг.', clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' },
+  { id: 'diamond', name: 'Ромб', clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' },
+  { id: 'hexagon', name: 'Шестиуг.', clipPath: 'polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)' },
+  { id: 'pentagon', name: 'Пятиуг.', clipPath: 'polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)' },
+  { id: 'star', name: 'Звезда', clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)' },
+  { id: 'heart', name: 'Сердце', clipPath: 'path("M50,30 C50,20 35,10 25,20 C12,32 25,50 50,72 C75,50 88,32 75,20 C65,10 50,20 50,30 Z")' },
+];
 
 export default function App() {
   const {
@@ -419,6 +448,7 @@ export default function App() {
     perfDisableAnimation
   });
 
+  // Separate ref sync (runs on all relevant state changes including drag) — no localStorage
   useEffect(() => {
     settingsRef.current = {
       flightSpeedMult,
@@ -441,35 +471,43 @@ export default function App() {
       perfDisableBg,
       perfDisableAnimation
     };
-    localStorage.setItem('archive-sphere-radius-scale-v5', sphereRadiusScale.toString());
-    localStorage.setItem('archive-sphere-position-scale-v5', spherePositionScale.toString());
-    localStorage.setItem('archive-topics-radius-scale-v1', topicsRadiusScale.toString());
-    localStorage.setItem('archive-flight-speed-mult-v5', flightSpeedMult.toString());
-    localStorage.setItem('archive-sphere-base-color-v5', sphereBaseColor);
-    localStorage.setItem('archive-subtopics-color-mode-v1', subtopicsColorMode);
-    localStorage.setItem('archive-spheres-color-hue-v5', spheresColorHue.toString());
-    localStorage.setItem('archive-custom-color-hex-v5', customColorHex);
-    localStorage.setItem('archive-physics-enabled-v5', isPhysicsEnabled.toString());
-    localStorage.setItem('archive-physics-g-v5', physicsG.toString());
-    localStorage.setItem('archive-physics-anchor-v5', physicsAnchor.toString());
-    localStorage.setItem('archive-physics-friction-v5', physicsFriction.toString());
-    localStorage.setItem('perf-blur-v1', perfDisableBlur.toString());
-    localStorage.setItem('perf-shadows-v1', perfDisableShadows.toString());
-    localStorage.setItem('perf-bg-v1', perfDisableBg.toString());
-    localStorage.setItem('perf-anim-v1', perfDisableAnimation.toString());
-    
-    if (bgImageUrl) localStorage.setItem('archive-bg-image-url-v1', bgImageUrl);
-    else localStorage.removeItem('archive-bg-image-url-v1');
-    localStorage.setItem('archive-bg-image-opacity-v1', bgImageOpacity.toString());
-    localStorage.setItem('archive-bg-image-scale-v1', bgImageScale.toString());
-    localStorage.setItem('archive-bg-image-x-v1', bgImageX.toString());
-    localStorage.setItem('archive-bg-image-y-v1', bgImageY.toString());
-    localStorage.setItem('archive-sphere-shape-v1', sphereShape);
-    localStorage.setItem('archive-sphere-opacity-v1', sphereOpacity.toString());
-    localStorage.setItem('archive-sphere-border-width-v1', sphereBorderWidth.toString());
-    localStorage.setItem('archive-sphere-glow-v1', sphereGlow.toString());
-    localStorage.setItem('archive-sphere-roundness-v1', sphereRoundness.toString());
-    localStorage.setItem('archive-sphere-custom-clippath-v1', customShapeClipPath);
+  });
+
+  // Persist settings to localStorage (excludes drag state to avoid writes every frame)
+  const localStorageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (localStorageTimerRef.current) clearTimeout(localStorageTimerRef.current);
+    localStorageTimerRef.current = setTimeout(() => {
+      localStorage.setItem('archive-sphere-radius-scale-v5', sphereRadiusScale.toString());
+      localStorage.setItem('archive-sphere-position-scale-v5', spherePositionScale.toString());
+      localStorage.setItem('archive-topics-radius-scale-v1', topicsRadiusScale.toString());
+      localStorage.setItem('archive-flight-speed-mult-v5', flightSpeedMult.toString());
+      localStorage.setItem('archive-sphere-base-color-v5', sphereBaseColor);
+      localStorage.setItem('archive-subtopics-color-mode-v1', subtopicsColorMode);
+      localStorage.setItem('archive-spheres-color-hue-v5', spheresColorHue.toString());
+      localStorage.setItem('archive-custom-color-hex-v5', customColorHex);
+      localStorage.setItem('archive-physics-enabled-v5', isPhysicsEnabled.toString());
+      localStorage.setItem('archive-physics-g-v5', physicsG.toString());
+      localStorage.setItem('archive-physics-anchor-v5', physicsAnchor.toString());
+      localStorage.setItem('archive-physics-friction-v5', physicsFriction.toString());
+      localStorage.setItem('perf-blur-v1', perfDisableBlur.toString());
+      localStorage.setItem('perf-shadows-v1', perfDisableShadows.toString());
+      localStorage.setItem('perf-bg-v1', perfDisableBg.toString());
+      localStorage.setItem('perf-anim-v1', perfDisableAnimation.toString());
+      
+      if (bgImageUrl) localStorage.setItem('archive-bg-image-url-v1', bgImageUrl);
+      else localStorage.removeItem('archive-bg-image-url-v1');
+      localStorage.setItem('archive-bg-image-opacity-v1', bgImageOpacity.toString());
+      localStorage.setItem('archive-bg-image-scale-v1', bgImageScale.toString());
+      localStorage.setItem('archive-bg-image-x-v1', bgImageX.toString());
+      localStorage.setItem('archive-bg-image-y-v1', bgImageY.toString());
+      localStorage.setItem('archive-sphere-shape-v1', sphereShape);
+      localStorage.setItem('archive-sphere-opacity-v1', sphereOpacity.toString());
+      localStorage.setItem('archive-sphere-border-width-v1', sphereBorderWidth.toString());
+      localStorage.setItem('archive-sphere-glow-v1', sphereGlow.toString());
+      localStorage.setItem('archive-sphere-roundness-v1', sphereRoundness.toString());
+      localStorage.setItem('archive-sphere-custom-clippath-v1', customShapeClipPath);
+    }, 300);
   }, [
     flightSpeedMult, 
     sphereRadiusScale, 
@@ -484,8 +522,6 @@ export default function App() {
     physicsG,
     physicsAnchor,
     physicsFriction,
-    draggedClusterId,
-    resizedClusterId,
     bgImageUrl,
     bgImageOpacity,
     bgImageScale,
@@ -503,29 +539,10 @@ export default function App() {
     customShapeClipPath
   ]);
 
-  const colorThemes = [
-    { id: 'default', name: 'Архивы', label: 'Оригинал' },
-    { id: 'purple_cyan', name: 'Акаша', label: 'Акаша Пурпур', gradient: 'linear-gradient(135deg, #7028e4 0%, #30cfd0 100%)' },
-    { id: 'crimson_gold', name: 'Вспышка', label: 'Алый Янтарь', gradient: 'linear-gradient(135deg, #f857a6 0%, #ff5858 100%)' },
-    { id: 'emerald_void', name: 'Матрица', label: 'Изумруд', gradient: 'linear-gradient(135deg, #0ba360 0%, #3cba92 100%)' },
-    { id: 'cyber_pink', name: 'Неон', label: 'Кибер Розовый', gradient: 'linear-gradient(135deg, #f9d423 0%, #ff4e50 100%)' },
-    { id: 'monochrome_white', name: 'Фантом', label: 'Белый Матрикс', gradient: 'linear-gradient(135deg, #e6e9f0 0%, #eef1f5 100%)' },
-    { id: 'custom', name: 'Кастом', label: 'Выбор цвета' }
-  ];
+  const colorThemes = COLOR_THEMES;
 
   // --- SPHERE SHAPE SYSTEM (Photoshop-style) ---
-  const shapePresets = [
-    { id: 'circle', name: 'Круг', clipPath: 'none', useRoundness: true },
-    { id: 'square', name: 'Квадрат', clipPath: 'none', forceRadius: '0%' },
-    { id: 'rounded', name: 'Скругл.', clipPath: 'none', forceRadius: '22%' },
-    { id: 'ellipse', name: 'Эллипс', clipPath: 'none', useRoundness: true, ellipse: true },
-    { id: 'triangle', name: 'Треуг.', clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' },
-    { id: 'diamond', name: 'Ромб', clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' },
-    { id: 'hexagon', name: 'Шестиуг.', clipPath: 'polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)' },
-    { id: 'pentagon', name: 'Пятиуг.', clipPath: 'polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)' },
-    { id: 'star', name: 'Звезда', clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)' },
-    { id: 'heart', name: 'Сердце', clipPath: 'path("M50,30 C50,20 35,10 25,20 C12,32 25,50 50,72 C75,50 88,32 75,20 C65,10 50,20 50,30 Z")' },
-  ];
+  const shapePresets = SHAPE_PRESETS;
 
   // Parse a free-text description into a shape id (e.g. "квадрат", "круг", "звезда")
   const matchShapeFromDescription = (desc: string): string | null => {
@@ -694,7 +711,7 @@ export default function App() {
     window.alert('Не удалось распознать форму. Примеры: «круг», «квадрат», «эллипс», «треугольник», «7-угольник», «звезда 9 лучей», «12 сторон», «сердце».');
   };
 
-  const getClusterColor = (cluster: ClusterData) => {
+  const getClusterColor = useCallback((cluster: ClusterData) => {
     if (sphereBaseColor === 'default') {
       return cluster.color;
     }
@@ -703,9 +720,9 @@ export default function App() {
     }
     const theme = colorThemes.find(t => t.id === sphereBaseColor);
     return theme?.gradient || cluster.color;
-  };
+  }, [sphereBaseColor, customColorHex, colorThemes]);
 
-  const getClusterSolidColor = (cluster: ClusterData) => {
+  const getClusterSolidColor = useCallback((cluster: ClusterData) => {
     let rawColor = cluster.color;
     if (sphereBaseColor === 'default') {
       rawColor = cluster.color;
@@ -728,9 +745,9 @@ export default function App() {
       return hexMatch[0];
     }
     return rawColor;
-  };
+  }, [sphereBaseColor, customColorHex]);
 
-  const getBrightenedColor = (hexOrStr: string) => {
+  const getBrightenedColor = useCallback((hexOrStr: string) => {
     const hexMatch = hexOrStr.match(/#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}/);
     if (!hexMatch) return '#ffffff'; // Fallback to white if no hex found
     let hex = hexMatch[0];
@@ -749,9 +766,9 @@ export default function App() {
     g = Math.min(255, Math.floor(g + (255 - g) * 0.6));
     b = Math.min(255, Math.floor(b + (255 - b) * 0.6));
     return `#${(1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1)}`;
-  };
+  }, []);
 
-  const getSubtopicColors = (text: string, solidColor: string, overrideColor?: string) => {
+  const getSubtopicColors = useCallback((text: string, solidColor: string, overrideColor?: string) => {
     if (overrideColor) {
       return { textColor: overrideColor, glowColor: 'transparent', ambientColor: 'transparent' };
     }
@@ -778,7 +795,7 @@ export default function App() {
       default:
         return { textColor: solidColor, glowColor: 'transparent', ambientColor: 'transparent' };
     }
-  };
+  }, [subtopicsColorMode]);
 
   // ZUI Navigation States
   const [view, setViewState] = useState<{ zoom: number; pan: { x: number; y: number } }>({ zoom: 0.5, pan: { x: 0, y: 0 } });
@@ -1475,6 +1492,47 @@ export default function App() {
     });
   }, [clusters, searchQuery]);
 
+  // Memoize SVG connection lines to avoid recalculating on every render
+  const connectionLines = useMemo(() => {
+    return filteredClusters.flatMap((cluster) => {
+      const cx = cluster.x * spherePositionScale;
+      const cy = cluster.y * spherePositionScale;
+      const color = getClusterSolidColor(cluster);
+      const clusterScaledRadius = cluster.radius * sphereRadiusScale;
+      const lines: React.ReactNode[] = [];
+      
+      cluster.subtopics.forEach((sub, i) => {
+        const rad = (sub.angle * Math.PI) / 180;
+        const dist = getItemDistance(cluster, sub);
+        if (cluster.id === 'q-anon' || !sub.isInner) {
+          const x1 = cx + Math.cos(rad) * clusterScaledRadius;
+          const y1 = cy + Math.sin(rad) * clusterScaledRadius;
+          const x2 = cx + Math.cos(rad) * dist;
+          const y2 = cy + Math.sin(rad) * dist;
+          lines.push(
+            <line key={`sub-line-${cluster.id}-${i}`} id={`line-sub-${cluster.id}-${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.5" strokeOpacity="0.4" strokeDasharray="4 4" />
+          );
+        }
+      });
+
+      cluster.details.forEach((det, i) => {
+        const rad = (det.angle * Math.PI) / 180;
+        const dist = getItemDistance(cluster, det);
+        if (cluster.id === 'q-anon' || !det.isInner) {
+          const x1 = cx + Math.cos(rad) * clusterScaledRadius;
+          const y1 = cy + Math.sin(rad) * clusterScaledRadius;
+          const x2 = cx + Math.cos(rad) * dist;
+          const y2 = cy + Math.sin(rad) * dist;
+          lines.push(
+            <line key={`det-line-${cluster.id}-${i}`} id={`line-det-${cluster.id}-${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="0.75" strokeOpacity="0.2" strokeDasharray="2 2" />
+          );
+        }
+      });
+
+      return lines;
+    });
+  }, [filteredClusters, spherePositionScale, sphereRadiusScale, sphereBaseColor, customColorHex]);
+
   return (
     <div ref={dragContainerRef} className="relative w-screen h-screen bg-[#02020a] overflow-hidden select-none font-sans text-slate-100">
       
@@ -1514,6 +1572,7 @@ export default function App() {
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: '50% 50%',
+            willChange: 'transform',
             width: '2000px',
             height: '2000px',
             left: '50%',
@@ -1538,46 +1597,10 @@ export default function App() {
             </div>
           )}
 
-           {/* Render Connections Layer (Static Links) */}
+           {/* Render Connections Layer (Static Links) — memoized */}
           <div className="absolute inset-0 pointer-events-none z-0" style={{ left: '50%', top: '50%' }}>
             <svg style={{ overflow: 'visible', width: 0, height: 0 }}>
-              {filteredClusters.flatMap((cluster, clusterIdx) => {
-                const cx = cluster.x * spherePositionScale;
-                const cy = cluster.y * spherePositionScale;
-                const color = getClusterSolidColor(cluster);
-                const clusterScaledRadius = cluster.radius * sphereRadiusScale;
-                const lines: React.ReactNode[] = [];
-                
-                cluster.subtopics.forEach((sub, i) => {
-                  const rad = (sub.angle * Math.PI) / 180;
-                  const dist = getItemDistance(cluster, sub);
-                  if (cluster.id === 'q-anon' || !sub.isInner) {
-                    const x1 = cx + Math.cos(rad) * clusterScaledRadius;
-                    const y1 = cy + Math.sin(rad) * clusterScaledRadius;
-                    const x2 = cx + Math.cos(rad) * dist;
-                    const y2 = cy + Math.sin(rad) * dist;
-                    lines.push(
-                      <line key={`sub-line-${cluster.id}-${i}`} id={`line-sub-${cluster.id}-${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.5" strokeOpacity="0.4" strokeDasharray="4 4" className="transition-opacity duration-300 peer-hover/sub:opacity-100" />
-                    );
-                  }
-                });
-
-                cluster.details.forEach((det, i) => {
-                  const rad = (det.angle * Math.PI) / 180;
-                  const dist = getItemDistance(cluster, det);
-                  if (cluster.id === 'q-anon' || !det.isInner) {
-                    const x1 = cx + Math.cos(rad) * clusterScaledRadius;
-                    const y1 = cy + Math.sin(rad) * clusterScaledRadius;
-                    const x2 = cx + Math.cos(rad) * dist;
-                    const y2 = cy + Math.sin(rad) * dist;
-                    lines.push(
-                      <line key={`det-line-${cluster.id}-${i}`} id={`line-det-${cluster.id}-${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="0.75" strokeOpacity="0.2" strokeDasharray="2 2" className="transition-opacity duration-300 peer-hover/det:opacity-100" />
-                    );
-                  }
-                });
-
-                return lines;
-              })}
+              {connectionLines}
             </svg>
           </div>
 
