@@ -395,13 +395,13 @@ export default function App() {
   const isPanelLocked = (panelId: string) => panelLocks[panelId] === undefined ? true : panelLocks[panelId];
 
   const getDragProps = (panelId: string) => {
-    const isDraggable = !isPanelLocked(panelId);
+    const isDraggable = isPanelsUnlocked || !isPanelLocked(panelId);
     return {
-      drag: isDraggable,
+      drag: isDraggable ? true as const : false as const,
       dragMomentum: false,
       dragElastic: 0,
       dragTransition: { bounceStiffness: 0, bounceDamping: 0, power: 0, timeConstant: 0 },
-      _dragConstraints: { top: 0, left: 0, right: 0, bottom: 0 },
+      dragConstraints: isDraggable ? false as const : undefined,
       style: isDraggable ? { cursor: 'move' } : {},
       transition: isDraggable ? { type: 'tween', duration: 0 } : undefined,
       whileDrag: isDraggable ? { transition: { duration: 0 } } : undefined,
@@ -413,14 +413,14 @@ export default function App() {
   const isPanelBeingDragged = (panelId: string) => panelDraggingId === panelId;
 
   const renderPanelLock = (panelId: string) => {
-    const isLocked = isPanelLocked(panelId);
+    const isLocked = !isPanelsUnlocked && isPanelLocked(panelId);
     return (
       <button
         onClick={(e) => { e.stopPropagation(); togglePanelLock(panelId); }}
-        className={`w-fit p-0.5 rounded transition-colors flex-shrink-0 ${panelId === 'catalog' ? 'absolute bottom-[4px] left-[-32px] z-40' : 'self-start'} ${isLocked ? 'text-amber-400 hover:text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)]' : 'text-amber-400 hover:text-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]'}`}
+        className={`w-fit p-0.5 rounded transition-colors flex-shrink-0 ${panelId === 'catalog' ? 'absolute bottom-[4px] left-[-32px] z-40' : 'self-start'} ${isLocked ? 'text-amber-400 hover:text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)]' : 'text-emerald-400 hover:text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}
         title={isLocked ? "Разблокировать панель" : "Заблокировать панель"}
       >
-        {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4 text-amber-300" />}
+        {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
       </button>
     );
   };
