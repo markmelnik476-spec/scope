@@ -113,19 +113,30 @@ const LogRow = React.memo(function LogRow({
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     const text = [log.time, log.type.toUpperCase(), log.message, log.detail].filter(Boolean).join('  ');
-    navigator.clipboard.writeText(text).then(() => {
+    const markCopied = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
-    }).catch(() => {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
+    };
+    const fallbackCopy = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) markCopied();
+      } catch (err) {
+        console.warn('[DebugPanel] Copy to clipboard failed', err);
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(markCopied).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
   };
 
   return (
@@ -352,7 +363,10 @@ export function DebugPanel() {
     };
     console.log = (...args: unknown[]) => {
       origLog(...args);
-      const asText = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      const asText = args.map(a => {
+        if (typeof a !== 'object' || a === null) return String(a);
+        try { return JSON.stringify(a); } catch { return String(a); }
+      }).join(' ');
       if (asText.includes('[DebugPanel]')) return;
       addLog({ type: 'console', message: asText });
     };
@@ -370,7 +384,10 @@ export function DebugPanel() {
       addLog({ type: 'error', message: e.message, detail: `${e.filename}:${e.lineno}:${e.colno}` });
     };
     const onUnhandled = (e: PromiseRejectionEvent) => {
-      addLog({ type: 'error', message: `Unhandled: ${String(e.reason)}` });
+      const reason = e.reason;
+      const message = reason instanceof Error ? reason.message : String(reason);
+      const detail = reason instanceof Error ? reason.stack : undefined;
+      addLog({ type: 'error', message: `Unhandled: ${message}`, detail });
     };
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onUnhandled);
@@ -419,7 +436,9 @@ export function DebugPanel() {
         try {
           const blob = await clone.blob();
           size = formatBytes(blob.size);
-        } catch { /* ignore */ }
+        } catch (sizeErr) {
+          addLog({ type: 'warn', message: `Could not read response size for ${method} ${url}`, detail: String(sizeErr) });
+        }
 
         setNetworkEntries(prev => prev.map(e => e.id === id ? { ...e, status: res.status, duration, size, pending: false } : e));
         return res;
@@ -523,20 +542,45 @@ export function DebugPanel() {
 
   // Export
   const handleExport = () => {
-    const data = JSON.stringify(logs, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `debug-logs-${new Date().toISOString().slice(0, 19)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const data = JSON.stringify(logs, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `debug-logs-${new Date().toISOString().slice(0, 19)}.json`;
+        a.click();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      addLog({ type: 'error', message: 'Failed to export logs', detail: String(err) });
+    }
   };
 
   // Copy all visible
   const handleCopyAll = () => {
     const text = filtered.map(l => `[${l.time}] ${l.type.toUpperCase()} ${l.message}${l.detail ? ' | ' + l.detail : ''}`).join('\n');
-    navigator.clipboard.writeText(text).catch(() => {});
+    const fallbackCopy = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch (err) {
+        addLog({ type: 'warn', message: 'Copy to clipboard failed', detail: String(err) });
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
   };
 
   // Scroll detection for auto-pause
